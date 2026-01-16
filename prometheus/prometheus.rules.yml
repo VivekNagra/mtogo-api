@@ -1,0 +1,38 @@
+groups:
+  - name: mtogo-alerts
+    rules:
+      - alert: AppDown
+        expr: up{job="mtogo-api"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "MTOGO API is down"
+          description: "Prometheus cannot scrape mtogo-api for 30 seconds."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(mtogo_orders_requests_total{status="500"}[2m]))
+            /
+            sum(rate(mtogo_orders_requests_total[2m]))
+          ) > 0.05
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on /orders"
+          description: "More than 5% of /orders requests are failing (simulated 5xx) for 1 minute."
+
+      - alert: SlowRequestsP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(mtogo_orders_request_duration_seconds_bucket[2m])) by (le)
+          ) > 0.8
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow /orders responses (p95)"
+          description: "p95 latency for /orders is above 800ms for 1 minute."
