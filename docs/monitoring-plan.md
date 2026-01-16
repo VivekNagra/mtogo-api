@@ -7,10 +7,9 @@ The goal of this monitoring setup is to continuously measure whether the MTOGO A
 - Failure rate (errors)
 - Request latency distribution (duration)
 
-This follows two widely used monitoring perspectives:
-- **RED** for request-driven services: Rate, Errors, Duration. :contentReference[oaicite:0]{index=0}
-- **USE** for infrastructure/resources: Utilization, Saturation, Errors. :contentReference[oaicite:1]{index=1}
-
+This monitoring setup uses two common perspectives:
+- **RED** for request-driven services: Rate, Errors, Duration
+- **USE** for infrastructure/resources: Utilization, Saturation, Errors
 
 ## System scope
 This OLA 5 setup monitors:
@@ -19,24 +18,22 @@ This OLA 5 setup monitors:
 - Grafana dashboard querying Prometheus
 - cAdvisor exporting container resource metrics (CPU/memory)
 
-Prometheus is responsible for collecting time-series, and Grafana is used for visualization.
-
+Prometheus collects time-series metrics. Grafana visualizes those metrics in a dashboard.
 
 ## RED metrics (service-level / user-facing signals)
-RED is used per endpoint (primarily `/orders`) because it directly reflects user experience and service health. :contentReference[oaicite:2]{index=2}
 
 ### Rate (traffic)
-**What:** requests per second (RPS) for the service.  
-**Why:** proves the service is receiving traffic; helps correlate load spikes with latency/errors.
+**What:** requests per second (RPS).  
+**Why:** confirms traffic and helps correlate load with latency/errors.
 
-**Metric/query used:**
+**Query used:**
 - `sum(rate(mtogo_orders_requests_total[5m]))`
 
 ### Errors (failures)
-**What:** percentage of requests returning 5xx (simulated failures in this project).  
-**Why:** directly supports availability/error-rate SLOs.
+**What:** error percentage (simulated 5xx in this project).  
+**Why:** supports an error-rate SLO and highlights instability.
 
-**Metric/query used:**
+**Query used:**
 - `(
   sum(rate(mtogo_orders_requests_total{status="500"}[5m]))
   /
@@ -44,51 +41,46 @@ RED is used per endpoint (primarily `/orders`) because it directly reflects user
 ) * 100`
 
 ### Duration (latency)
-**What:** latency distribution, tracked via histogram quantiles (p95).  
-**Why:** an average hides tail latency; percentiles provide an SLO-friendly view.
+**What:** tail latency via p95 from histogram buckets.  
+**Why:** percentiles show user experience better than averages.
 
-**Metric/query used (p95):**
+**Query used (p95):**
 - `histogram_quantile(
   0.95,
   sum(rate(mtogo_orders_request_duration_seconds_bucket[5m])) by (le)
 )`
 
-
 ## USE metrics (resource-level signals)
-USE is used for system resources to identify bottlenecks (CPU/memory). :contentReference[oaicite:3]{index=3}
 
 ### Utilization
-**What:** CPU usage and memory usage per container.  
-**Why:** helps identify whether performance problems are driven by resource constraints.
+**What:** CPU and memory usage per container.  
+**Why:** helps diagnose performance issues caused by resource limits.
 
-**Metrics/queries (cAdvisor):**
-- CPU (per container):  
-  `sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[1m])) by (container)`
-- Memory (per container):  
-  `sum(container_memory_working_set_bytes{container!="",container!="POD"}) by (container)`
+**Queries (cAdvisor):**
+- CPU:
+  - `sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[1m])) by (container)`
+- Memory:
+  - `sum(container_memory_working_set_bytes{container!="",container!="POD"}) by (container)`
 
 ### Saturation
-**What:** saturation indicates queued work and bottlenecks (e.g., CPU throttling, queue depth, thread pool saturation, DB connection pool usage).  
-**Why:** high utilization alone may not indicate an issue; saturation is stronger evidence of a bottleneck.
+**What:** backlog/queueing indicators (thread pool saturation, DB pool usage, CPU throttling).  
+**Why:** high utilization alone isn’t always a problem; saturation signals bottlenecks.
 
-**Note for this iteration:** The project does not include DB/queue/thread pool saturation metrics yet. In a future version, I would add:
-- server thread pool metrics
-- DB connection pool utilization (if a database is introduced)
+**Note for this iteration:** saturation metrics are not implemented yet because the service has no DB/queue. A realistic next step would be adding thread pool and connection pool metrics.
 
 ### Errors
-**What:** container restarts/OOM events and scrape target down events.  
-**Why:** indicates instability/failure at the infrastructure or service layer.
+**What:** service down/unreachable and container stability signals.  
+**Why:** indicates failures at service or infrastructure level.
 
-**Signals:**
-- `up{job="mtogo-api"}` (service scrape availability)
-
+**Signal used:**
+- `up{job="mtogo-api"}`
 
 ## Alerting approach
-Prometheus alert rules are defined in `prometheus/prometheus.rules.yml` using `expr`, `for`, `labels`, and `annotations`. :contentReference[oaicite:4]{index=4}
+Prometheus alert rules are defined in `prometheus/prometheus.rules.yml` using `expr`, `for`, `labels`, and `annotations`.
 
 Alerts configured:
 - **AppDown**: `up{job="mtogo-api"} == 0`
 - **HighErrorRate**: error ratio > 5% for 1 minute
 - **SlowRequestsP95**: p95 latency > 0.8s for 1 minute
 
-The alerts are intentionally simple and aligned with RED metrics so they can be demonstrated by stopping the app container/process, simulating 5xx responses, or simulating slow requests.
+These alerts are aligned with the RED metrics and can be demonstrated by stopping the app, simulating 5xx responses, or simulating slow responses.
